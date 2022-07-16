@@ -1,4 +1,6 @@
-mod fifth;
+#![feature(try_trait_v2)]
+
+pub mod fifth;
 
 #[cfg(test)]
 mod tests {
