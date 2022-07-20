@@ -16,9 +16,14 @@ pub struct Node<T> {
     pub(crate) item: MaybeUninit<T>,
 }
 
+impl<T> Node<T> {
+    pub(crate) fn new(prev: NodePtr<T>, item: MaybeUninit<T>, next: NodePtr<T>) -> Self {
+        Self { prev, next, item }
+    }
+}
+
 pub struct NodePtr<T> {
     ptr: NonNull<Node<T>>,
-    _phantom: PhantomData<T>,
 }
 
 impl<T> Debug for NodePtr<T> {
@@ -29,10 +34,7 @@ impl<T> Debug for NodePtr<T> {
 
 impl<T> Clone for NodePtr<T> {
     fn clone(&self) -> Self {
-        Self {
-            ptr: self.ptr,
-            _phantom: PhantomData,
-        }
+        Self { ptr: self.ptr }
     }
 }
 
@@ -51,12 +53,11 @@ impl<T> NodePtr<T> {
     pub unsafe fn dangling() -> Self {
         Self {
             ptr: NonNull::dangling(),
-            _phantom: PhantomData,
         }
     }
 
     pub unsafe fn raw_alloc(prev: Self, item: MaybeUninit<T>, next: Self) -> Self {
-        let ptr = Box::into_raw(Box::new(Node { prev, next, item }));
+        let ptr = Box::into_raw(Box::new(Node::new(prev, item, next)));
         let ptr = NonNull::new_unchecked(ptr);
 
         #[cfg(feature = "debug-alloc")]
@@ -69,10 +70,7 @@ impl<T> NodePtr<T> {
             println!("{}\n", Backtrace::capture());
         }
 
-        Self {
-            ptr,
-            _phantom: PhantomData,
-        }
+        Self { ptr }
     }
 
     pub fn alloc(prev: Self, item: T, next: Self) -> Self {
@@ -155,7 +153,9 @@ impl<T> NodePtr<T> {
 
     pub unsafe fn dealloc(self) -> Option<(Self, T, Self)> {
         self.is_dummy().not().then(|| {
-            let Node { prev, next, item } = self.dealloc_raw();
+            let Node {
+                prev, next, item, ..
+            } = self.dealloc_raw();
             (prev, item.assume_init(), next)
         })
     }
