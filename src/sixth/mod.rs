@@ -27,7 +27,7 @@ impl<T> LinkedList<T> {
     }
 
     pub(crate) fn inner(&mut self) -> NodePtr<T> {
-        *self.dummy.get_or_insert(NodePtr::dummy())
+        *self.dummy.get_or_insert_with(|| NodePtr::dummy())
     }
 
     pub fn len(&self) -> usize {
@@ -63,16 +63,42 @@ impl<T> LinkedList<T> {
 impl<T> Drop for LinkedList<T> {
     fn drop(&mut self) {
         while self.pop_front().is_some() {}
-        let dummy = self.dummy.take().unwrap();
         unsafe {
-            let _ = Box::from_raw(dummy.as_ptr());
+            self.dummy.take().unwrap().dealloc_raw();
         }
     }
 }
 
 #[cfg(test)]
 mod test {
-    use super::LinkedList;
+    use super::{node::NodePtr, LinkedList};
+
+    #[test]
+    fn test_empty() {
+        LinkedList::<i32>::new();
+    }
+
+    fn test_node() {
+        let dummy = NodePtr::dummy();
+        let node = NodePtr::alloc(dummy, 100, dummy);
+
+        dummy.set_next(node);
+        dummy.set_prev(node);
+
+        let (_, elem, _) = unsafe { node.dealloc() }.unwrap();
+        unsafe {
+            Box::from_raw(dummy.as_ptr());
+        }
+        assert_eq!(elem, 100);
+    }
+
+    #[test]
+    fn test_small() {
+        let mut list = LinkedList::new();
+        list.push_front(10);
+        assert_eq!(list.pop_front(), Some(10));
+        assert_eq!(list.pop_front(), None);
+    }
 
     #[test]
     fn test_basic_front() {
@@ -112,5 +138,8 @@ mod test {
         assert_eq!(list.len(), 0);
         assert_eq!(list.pop_front(), None);
         assert_eq!(list.len(), 0);
+
+        list.push_front(10);
+        list.push_front(20);
     }
 }

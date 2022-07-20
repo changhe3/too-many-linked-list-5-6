@@ -1,9 +1,13 @@
 use std::{
     fmt::Debug,
+    marker::PhantomData,
     mem::MaybeUninit,
     ops::Not,
     ptr::{self, NonNull},
 };
+
+#[cfg(feature = "debug-alloc")]
+use std::backtrace::Backtrace;
 
 #[derive(Debug)]
 pub struct Node<T> {
@@ -14,6 +18,7 @@ pub struct Node<T> {
 
 pub struct NodePtr<T> {
     ptr: NonNull<Node<T>>,
+    _phantom: PhantomData<T>,
 }
 
 impl<T> Debug for NodePtr<T> {
@@ -24,7 +29,10 @@ impl<T> Debug for NodePtr<T> {
 
 impl<T> Clone for NodePtr<T> {
     fn clone(&self) -> Self {
-        Self { ptr: self.ptr }
+        Self {
+            ptr: self.ptr,
+            _phantom: PhantomData,
+        }
     }
 }
 
@@ -42,13 +50,28 @@ impl<T> NodePtr<T> {
     pub unsafe fn dangling() -> Self {
         Self {
             ptr: NonNull::dangling(),
+            _phantom: PhantomData,
         }
     }
 
     pub unsafe fn raw_alloc(prev: Self, elem: MaybeUninit<T>, next: Self) -> Self {
         let ptr = Box::into_raw(Box::new(Node { prev, next, elem }));
         let ptr = NonNull::new_unchecked(ptr);
-        Self { ptr }
+
+        #[cfg(feature = "debug-alloc")]
+        {
+            println!(
+                "Allocated {} bytes at ptr {:p}: ",
+                std::mem::size_of::<Node<T>>(),
+                ptr.as_ptr()
+            );
+            println!("{}\n", Backtrace::capture());
+        }
+
+        Self {
+            ptr,
+            _phantom: PhantomData,
+        }
     }
 
     pub fn alloc(prev: Self, elem: T, next: Self) -> Self {
@@ -119,9 +142,22 @@ impl<T> NodePtr<T> {
 
     pub unsafe fn dealloc(self) -> Option<(Self, T, Self)> {
         self.is_dummy().not().then(|| {
-            println!("Deallocating...");
-            let Node { prev, next, elem } = *Box::from_raw(self.as_ptr());
+            let Node { prev, next, elem } = self.dealloc_raw();
             (prev, elem.assume_init(), next)
         })
+    }
+
+    pub unsafe fn dealloc_raw(self) -> Node<T> {
+        #[cfg(feature = "debug-alloc")]
+        {
+            println!(
+                "Deallocated {} bytes at ptr {:p}",
+                std::mem::size_of::<Node<T>>(),
+                self.as_ptr()
+            );
+            println!("{}\n", Backtrace::capture());
+        }
+
+        *Box::from_raw(self.as_ptr())
     }
 }
