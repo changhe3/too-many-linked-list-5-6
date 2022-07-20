@@ -13,7 +13,7 @@ use std::backtrace::Backtrace;
 pub struct Node<T> {
     pub(crate) prev: NodePtr<T>,
     pub(crate) next: NodePtr<T>,
-    pub(crate) elem: MaybeUninit<T>,
+    pub(crate) item: MaybeUninit<T>,
 }
 
 pub struct NodePtr<T> {
@@ -46,6 +46,7 @@ impl<T> PartialEq for NodePtr<T> {
 
 impl<T> Eq for NodePtr<T> {}
 
+#[allow(unused)]
 impl<T> NodePtr<T> {
     pub unsafe fn dangling() -> Self {
         Self {
@@ -54,8 +55,8 @@ impl<T> NodePtr<T> {
         }
     }
 
-    pub unsafe fn raw_alloc(prev: Self, elem: MaybeUninit<T>, next: Self) -> Self {
-        let ptr = Box::into_raw(Box::new(Node { prev, next, elem }));
+    pub unsafe fn raw_alloc(prev: Self, item: MaybeUninit<T>, next: Self) -> Self {
+        let ptr = Box::into_raw(Box::new(Node { prev, next, item }));
         let ptr = NonNull::new_unchecked(ptr);
 
         #[cfg(feature = "debug-alloc")]
@@ -74,8 +75,8 @@ impl<T> NodePtr<T> {
         }
     }
 
-    pub fn alloc(prev: Self, elem: T, next: Self) -> Self {
-        unsafe { Self::raw_alloc(prev, MaybeUninit::new(elem), next) }
+    pub fn alloc(prev: Self, item: T, next: Self) -> Self {
+        unsafe { Self::raw_alloc(prev, MaybeUninit::new(item), next) }
     }
 
     pub fn dummy() -> Self {
@@ -141,7 +142,7 @@ impl<T> NodePtr<T> {
     }
 
     pub unsafe fn get_raw_unchecked(self) -> NonNull<T> {
-        NonNull::new_unchecked((*self.as_ptr()).elem.as_mut_ptr())
+        NonNull::new_unchecked((*self.as_ptr()).item.as_mut_ptr())
     }
 
     pub unsafe fn get_unchecked<'a>(self) -> &'a T {
@@ -154,8 +155,8 @@ impl<T> NodePtr<T> {
 
     pub unsafe fn dealloc(self) -> Option<(Self, T, Self)> {
         self.is_dummy().not().then(|| {
-            let Node { prev, next, elem } = self.dealloc_raw();
-            (prev, elem.assume_init(), next)
+            let Node { prev, next, item } = self.dealloc_raw();
+            (prev, item.assume_init(), next)
         })
     }
 

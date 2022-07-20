@@ -13,7 +13,7 @@ struct Inner<T> {
 
 #[derive(Debug)]
 struct Node<T> {
-    elem: T,
+    item: T,
     next: Link<T>,
 }
 
@@ -33,8 +33,8 @@ impl<T> List<T> {
         Default::default()
     }
 
-    pub fn push(&mut self, elem: T) {
-        let new_tail = Box::new(Node { elem, next: None });
+    pub fn push(&mut self, item: T) {
+        let new_tail = Box::new(Node { item, next: None });
         let new_tail = unsafe { NonNull::new_unchecked(Box::into_raw(new_tail)) };
 
         let new_head = if let Some(Inner { head, tail }) = self.inner.take() {
@@ -54,9 +54,9 @@ impl<T> List<T> {
 
     pub fn pop(&mut self) -> Option<T> {
         self.inner.take().map(|Inner { head, tail }| {
-            let Node { elem, next } = unsafe { *Box::from_raw(head.as_ptr()) };
+            let Node { item, next } = unsafe { *Box::from_raw(head.as_ptr()) };
             self.inner = next.map(|head| Inner { head, tail });
-            elem
+            item
         })
     }
 }
@@ -75,9 +75,9 @@ impl<'a, T> Iterator for Iter<'a, T> {
     type Item = &'a T;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.next.take().map(|Node { elem, next }| {
+        self.next.take().map(|Node { item, next }| {
             self.next = unsafe { next.as_ref().map(|node| node.as_ref()) };
-            elem
+            item
         })
     }
 }
@@ -90,9 +90,9 @@ impl<'a, T> Iterator for IterMut<'a, T> {
     type Item = &'a mut T;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.next.take().map(|Node { elem, next }| {
+        self.next.take().map(|Node { item, next }| {
             self.next = unsafe { next.as_mut().map(|node| node.as_mut()) };
-            elem
+            item
         })
     }
 }
@@ -141,13 +141,13 @@ impl<T> List<T> {
     pub fn peek(&self) -> Option<&T> {
         self.inner
             .as_ref()
-            .map(|Inner { head, .. }| unsafe { &head.as_ref().elem })
+            .map(|Inner { head, .. }| unsafe { &head.as_ref().item })
     }
 
     pub fn peek_mut(&mut self) -> Option<&mut T> {
         self.inner
             .as_mut()
-            .map(|Inner { head, .. }| unsafe { &mut head.as_mut().elem })
+            .map(|Inner { head, .. }| unsafe { &mut head.as_mut().item })
     }
 }
 
@@ -256,8 +256,8 @@ mod test {
         assert!(list.peek() == Some(&30));
         assert!(list.pop() == Some(30));
 
-        for elem in list.iter_mut() {
-            *elem *= 100;
+        for item in list.iter_mut() {
+            *item *= 100;
         }
 
         let mut iter = list.iter();
