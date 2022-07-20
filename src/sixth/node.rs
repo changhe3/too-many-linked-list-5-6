@@ -11,9 +11,9 @@ use std::backtrace::Backtrace;
 
 #[derive(Debug)]
 pub struct Node<T> {
-    prev: NodePtr<T>,
-    next: NodePtr<T>,
-    elem: MaybeUninit<T>,
+    pub(crate) prev: NodePtr<T>,
+    pub(crate) next: NodePtr<T>,
+    pub(crate) elem: MaybeUninit<T>,
 }
 
 pub struct NodePtr<T> {
@@ -129,7 +129,7 @@ impl<T> NodePtr<T> {
     pub fn get_raw(self) -> Option<NonNull<T>> {
         self.is_dummy()
             .not()
-            .then(|| unsafe { NonNull::new_unchecked((*self.as_ptr()).elem.as_mut_ptr()) })
+            .then(|| unsafe { self.get_raw_unchecked() })
     }
 
     pub unsafe fn get<'a>(self) -> Option<&'a T> {
@@ -138,6 +138,18 @@ impl<T> NodePtr<T> {
 
     pub unsafe fn get_mut<'a>(self) -> Option<&'a mut T> {
         self.get_raw().map(|mut ptr| ptr.as_mut())
+    }
+
+    pub unsafe fn get_raw_unchecked(self) -> NonNull<T> {
+        NonNull::new_unchecked((*self.as_ptr()).elem.as_mut_ptr())
+    }
+
+    pub unsafe fn get_unchecked<'a>(self) -> &'a T {
+        self.get_raw_unchecked().as_ref()
+    }
+
+    pub unsafe fn get_mut_unchecked<'a>(self) -> &'a mut T {
+        self.get_raw_unchecked().as_mut()
     }
 
     pub unsafe fn dealloc(self) -> Option<(Self, T, Self)> {

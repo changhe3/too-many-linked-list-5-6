@@ -1,7 +1,11 @@
 use std::marker::PhantomData;
 
-use self::node::NodePtr;
+use self::{
+    iter::{Iter, IterMut},
+    node::{Node, NodePtr},
+};
 
+mod iter;
 mod node;
 
 #[derive(Debug)]
@@ -38,12 +42,32 @@ impl<T> LinkedList<T> {
         self.len() == 0
     }
 
+    pub fn clear(&mut self) {
+        if let Some(dummy) = self.dummy {
+            let mut ptr = dummy.next();
+            while ptr != dummy {
+                let Node { next, .. } = unsafe { ptr.dealloc_raw() };
+                ptr = next;
+            }
+        }
+    }
+
     pub fn push_front(&mut self, elem: T) {
         let dummy = self.init();
         let head = dummy.next();
         let new_head = NodePtr::alloc(dummy, elem, head);
         head.set_prev(new_head);
         dummy.set_next(new_head);
+
+        self.len = self.len.saturating_add(1);
+    }
+
+    pub fn push_back(&mut self, elem: T) {
+        let dummy = self.init();
+        let tail = dummy.prev();
+        let new_tail = NodePtr::alloc(tail, elem, dummy);
+        tail.set_next(new_tail);
+        dummy.set_prev(new_tail);
 
         self.len = self.len.saturating_add(1);
     }
@@ -58,8 +82,38 @@ impl<T> LinkedList<T> {
         Some(elem)
     }
 
-    pub fn clear(&mut self) {
-        while self.pop_front().is_some() {}
+    pub fn pop_back(&mut self) -> Option<T> {
+        let dummy = self.dummy?;
+        let (new_tail, elem, _) = unsafe { dummy.prev().dealloc()? };
+        dummy.set_prev(new_tail);
+        new_tail.set_next(dummy);
+
+        self.len = self.len.saturating_sub(1);
+        Some(elem)
+    }
+
+    pub fn front(&self) -> Option<&T> {
+        unsafe { self.dummy?.next().get() }
+    }
+
+    pub fn front_mut(&self) -> Option<&mut T> {
+        unsafe { self.dummy?.next().get_mut() }
+    }
+
+    pub fn back(&self) -> Option<&T> {
+        unsafe { self.dummy?.prev().get() }
+    }
+
+    pub fn back_mut(&self) -> Option<&mut T> {
+        unsafe { self.dummy?.prev().get_mut() }
+    }
+
+    pub fn iter(&self) -> Iter<'_, T> {
+        self.into_iter()
+    }
+
+    pub fn iter_mut(&mut self) -> IterMut<'_, T> {
+        self.into_iter()
     }
 }
 
@@ -74,7 +128,7 @@ impl<T> Drop for LinkedList<T> {
 
 #[cfg(test)]
 mod test {
-    use super::{node::NodePtr, LinkedList};
+    use super::LinkedList;
 
     #[test]
     fn test_empty() {
