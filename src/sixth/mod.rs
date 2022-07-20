@@ -26,7 +26,7 @@ impl<T> LinkedList<T> {
         Default::default()
     }
 
-    pub(crate) fn inner(&mut self) -> NodePtr<T> {
+    pub(crate) fn init(&mut self) -> NodePtr<T> {
         *self.dummy.get_or_insert_with(|| NodePtr::dummy())
     }
 
@@ -39,7 +39,7 @@ impl<T> LinkedList<T> {
     }
 
     pub fn push_front(&mut self, elem: T) {
-        let dummy = self.inner();
+        let dummy = self.init();
         let head = dummy.next();
         let new_head = NodePtr::alloc(dummy, elem, head);
         head.set_prev(new_head);
@@ -49,22 +49,25 @@ impl<T> LinkedList<T> {
     }
 
     pub fn pop_front(&mut self) -> Option<T> {
-        let dummy = self.inner();
-        unsafe { dummy.next().dealloc() }.map(|(_, elem, new_head)| {
-            dummy.set_next(new_head);
-            new_head.set_prev(dummy);
+        let dummy = self.dummy?;
+        let (_, elem, new_head) = unsafe { dummy.next().dealloc()? };
+        dummy.set_next(new_head);
+        new_head.set_prev(dummy);
 
-            self.len -= 1;
-            elem
-        })
+        self.len -= 1;
+        Some(elem)
+    }
+
+    pub fn clear(&mut self) {
+        while self.pop_front().is_some() {}
     }
 }
 
 impl<T> Drop for LinkedList<T> {
     fn drop(&mut self) {
-        while self.pop_front().is_some() {}
+        self.clear();
         unsafe {
-            self.dummy.take().unwrap().dealloc_raw();
+            self.dummy.map(|ptr| ptr.dealloc_raw());
         }
     }
 }
