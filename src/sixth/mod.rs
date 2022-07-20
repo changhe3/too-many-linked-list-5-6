@@ -45,7 +45,7 @@ impl<T> LinkedList<T> {
         head.set_prev(new_head);
         dummy.set_next(new_head);
 
-        self.len += 1;
+        self.len = self.len.saturating_add(1);
     }
 
     pub fn pop_front(&mut self) -> Option<T> {
@@ -54,7 +54,7 @@ impl<T> LinkedList<T> {
         dummy.set_next(new_head);
         new_head.set_prev(dummy);
 
-        self.len -= 1;
+        self.len = self.len.saturating_sub(1);
         Some(elem)
     }
 
@@ -79,20 +79,6 @@ mod test {
     #[test]
     fn test_empty() {
         LinkedList::<i32>::new();
-    }
-
-    fn test_node() {
-        let dummy = NodePtr::dummy();
-        let node = NodePtr::alloc(dummy, 100, dummy);
-
-        dummy.set_next(node);
-        dummy.set_prev(node);
-
-        let (_, elem, _) = unsafe { node.dealloc() }.unwrap();
-        unsafe {
-            Box::from_raw(dummy.as_ptr());
-        }
-        assert_eq!(elem, 100);
     }
 
     #[test]
