@@ -1,12 +1,11 @@
 use std::{fmt::Debug, hash::Hash, marker::PhantomData};
 
-use self::{
-    iter::{Iter, IterMut},
-    node::{Node, NodePtr},
-};
+use self::node::{Node, NodePtr};
 
 mod iter;
 mod node;
+
+pub use iter::{Iter, IterMut};
 
 pub struct LinkedList<T> {
     dummy: Option<NodePtr<T>>,

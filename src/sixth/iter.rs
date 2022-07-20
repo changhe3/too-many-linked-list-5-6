@@ -1,4 +1,4 @@
-use std::{marker::PhantomData, ptr::NonNull};
+use std::marker::PhantomData;
 
 use super::{node::NodePtr, LinkedList};
 
@@ -26,7 +26,7 @@ impl<T> LinkedList<T> {
 }
 
 impl<T> Iterator for RawIter<T> {
-    type Item = NonNull<T>;
+    type Item = NodePtr<T>;
 
     fn next(&mut self) -> Option<Self::Item> {
         (self.len != 0).then(|| {
@@ -34,7 +34,7 @@ impl<T> Iterator for RawIter<T> {
             self.len = self.len.saturating_sub(1);
 
             debug_assert!(!self.front.is_dummy());
-            unsafe { self.front.get_raw_unchecked() }
+            self.front
         })
     }
 
@@ -50,7 +50,7 @@ impl<T> DoubleEndedIterator for RawIter<T> {
             self.len = self.len.saturating_sub(1);
 
             debug_assert!(!self.back.is_dummy());
-            unsafe { self.back.get_raw_unchecked() }
+            self.back
         })
     }
 }
@@ -82,7 +82,7 @@ impl<'a, T> Iterator for Iter<'a, T> {
         self.inner
             .as_mut()?
             .next()
-            .map(|ptr| unsafe { ptr.as_ref() })
+            .map(|ptr| unsafe { ptr.get_unchecked() })
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -98,7 +98,7 @@ impl<'a, T> Iterator for IterMut<'a, T> {
         self.inner
             .as_mut()?
             .next()
-            .map(|mut ptr| unsafe { ptr.as_mut() })
+            .map(|ptr| unsafe { ptr.get_mut_unchecked() })
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -124,7 +124,7 @@ impl<'a, T> DoubleEndedIterator for Iter<'a, T> {
         self.inner
             .as_mut()?
             .next_back()
-            .map(|ptr| unsafe { ptr.as_ref() })
+            .map(|ptr| unsafe { ptr.get_unchecked() })
     }
 }
 
@@ -133,7 +133,7 @@ impl<'a, T> DoubleEndedIterator for IterMut<'a, T> {
         self.inner
             .as_mut()?
             .next_back()
-            .map(|mut ptr| unsafe { ptr.as_mut() })
+            .map(|ptr| unsafe { ptr.get_mut_unchecked() })
     }
 }
 
@@ -204,3 +204,11 @@ unsafe impl<'a, T: Sync> Sync for Iter<'a, T> {}
 
 unsafe impl<'a, T: Send> Send for IterMut<'a, T> {}
 unsafe impl<'a, T: Sync> Sync for IterMut<'a, T> {}
+
+/// ```compile_fail
+/// use too_many_linked_list::sixth::IterMut;
+///
+/// fn iter_mut_covariant<'i, 'a, T>(x: IterMut<'i, &'static T>) -> IterMut<'i, &'a T> { x }
+/// ```
+#[allow(unused)]
+fn iter_mut_invariant() {}
