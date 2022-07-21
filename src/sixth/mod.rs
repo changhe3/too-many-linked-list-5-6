@@ -1,15 +1,19 @@
 use std::{fmt::Debug, hash::Hash, marker::PhantomData};
 
-use self::node::{Node, NodePtr};
+use self::{
+    cursor::{Cursor, CursorMut},
+    node::{Node, NodePtr},
+};
 
+mod cursor;
 mod iter;
 mod node;
 
-pub use iter::{Iter, IterMut};
+pub use iter::{IntoIter, Iter, IterMut};
 
 pub struct LinkedList<T> {
-    dummy: Option<NodePtr<T>>,
-    len: usize,
+    pub(crate) dummy: Option<NodePtr<T>>,
+    pub(crate) len: usize,
     _phantom: PhantomData<T>,
 }
 
@@ -72,7 +76,7 @@ impl<T> LinkedList<T> {
 
     pub fn pop_front(&mut self) -> Option<T> {
         let dummy = self.dummy?;
-        let (_, item, new_head) = unsafe { dummy.next().dealloc()? };
+        let (_, item, new_head) = unsafe { dummy.next().dealloc(self)? };
         dummy.set_next(new_head);
         new_head.set_prev(dummy);
 
@@ -82,7 +86,7 @@ impl<T> LinkedList<T> {
 
     pub fn pop_back(&mut self) -> Option<T> {
         let dummy = self.dummy?;
-        let (new_tail, item, _) = unsafe { dummy.prev().dealloc()? };
+        let (new_tail, item, _) = unsafe { dummy.prev().dealloc(self)? };
         dummy.set_prev(new_tail);
         new_tail.set_next(dummy);
 
@@ -91,19 +95,19 @@ impl<T> LinkedList<T> {
     }
 
     pub fn front(&self) -> Option<&T> {
-        unsafe { self.dummy?.next().get() }
+        self.dummy?.next().get(self)
     }
 
-    pub fn front_mut(&self) -> Option<&mut T> {
-        unsafe { self.dummy?.next().get_mut() }
+    pub fn front_mut(&mut self) -> Option<&mut T> {
+        self.dummy?.next().get_mut(self)
     }
 
     pub fn back(&self) -> Option<&T> {
-        unsafe { self.dummy?.prev().get() }
+        self.dummy?.prev().get(self)
     }
 
-    pub fn back_mut(&self) -> Option<&mut T> {
-        unsafe { self.dummy?.prev().get_mut() }
+    pub fn back_mut(&mut self) -> Option<&mut T> {
+        self.dummy?.prev().get_mut(self)
     }
 
     pub fn iter(&self) -> Iter<'_, T> {
@@ -113,6 +117,22 @@ impl<T> LinkedList<T> {
     pub fn iter_mut(&mut self) -> IterMut<'_, T> {
         self.into_iter()
     }
+
+    // pub fn cursor(&self) -> Cursor<'_, T> {
+    //     Cursor {
+    //         node: self.dummy,
+    //         list: self,
+    //         index: self.len(),
+    //     }
+    // }
+
+    // pub fn cursor_mut(&mut self) -> CursorMut<'_, T> {
+    //     CursorMut {
+    //         index: self.len(),
+    //         node: self.init(),
+    //         list: self,
+    //     }
+    // }
 }
 
 impl<T> Drop for LinkedList<T> {

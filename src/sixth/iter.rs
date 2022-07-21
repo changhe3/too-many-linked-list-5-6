@@ -33,7 +33,6 @@ impl<T> Iterator for RawIter<T> {
             self.front = self.front.next();
             self.len = self.len.saturating_sub(1);
 
-            debug_assert!(!self.front.is_dummy());
             self.front
         })
     }
@@ -49,7 +48,6 @@ impl<T> DoubleEndedIterator for RawIter<T> {
             self.back = self.back.prev();
             self.len = self.len.saturating_sub(1);
 
-            debug_assert!(!self.back.is_dummy());
             self.back
         })
     }

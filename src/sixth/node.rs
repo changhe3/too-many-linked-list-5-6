@@ -1,6 +1,5 @@
 use std::{
     fmt::Debug,
-    marker::PhantomData,
     mem::MaybeUninit,
     ops::Not,
     ptr::{self, NonNull},
@@ -8,6 +7,8 @@ use std::{
 
 #[cfg(feature = "debug-alloc")]
 use std::backtrace::Backtrace;
+
+use super::LinkedList;
 
 #[derive(Debug)]
 pub struct Node<T> {
@@ -109,8 +110,8 @@ impl<T> NodePtr<T> {
         }
     }
 
-    pub fn is_dummy(self) -> bool {
-        self.prev() == self.next() && self.prev() == self
+    pub fn is_dummy(self, list: &LinkedList<T>) -> bool {
+        list.dummy.map_or(false, |dummy| self == dummy)
     }
 
     pub fn as_ptr(self) -> *mut Node<T> {
@@ -125,18 +126,18 @@ impl<T> NodePtr<T> {
         self.ptr.as_mut()
     }
 
-    pub fn get_raw(self) -> Option<NonNull<T>> {
-        self.is_dummy()
+    pub fn get_raw(self, list: &LinkedList<T>) -> Option<NonNull<T>> {
+        self.is_dummy(list)
             .not()
             .then(|| unsafe { self.get_raw_unchecked() })
     }
 
-    pub unsafe fn get<'a>(self) -> Option<&'a T> {
-        self.get_raw().map(|ptr| ptr.as_ref())
+    pub fn get(self, list: &LinkedList<T>) -> Option<&T> {
+        self.get_raw(list).map(|ptr| unsafe { ptr.as_ref() })
     }
 
-    pub unsafe fn get_mut<'a>(self) -> Option<&'a mut T> {
-        self.get_raw().map(|mut ptr| ptr.as_mut())
+    pub fn get_mut(self, list: &mut LinkedList<T>) -> Option<&mut T> {
+        self.get_raw(list).map(|mut ptr| unsafe { ptr.as_mut() })
     }
 
     pub unsafe fn get_raw_unchecked(self) -> NonNull<T> {
@@ -151,8 +152,8 @@ impl<T> NodePtr<T> {
         self.get_raw_unchecked().as_mut()
     }
 
-    pub unsafe fn dealloc(self) -> Option<(Self, T, Self)> {
-        self.is_dummy().not().then(|| {
+    pub unsafe fn dealloc(self, list: &mut LinkedList<T>) -> Option<(Self, T, Self)> {
+        self.is_dummy(list).not().then(|| {
             let Node {
                 prev, next, item, ..
             } = self.dealloc_raw();
