@@ -8,7 +8,7 @@ use std::{
 #[cfg(feature = "debug-alloc")]
 use std::backtrace::Backtrace;
 
-use super::LinkedList;
+use super::{iter::RawIter, LinkedList};
 
 #[derive(Debug)]
 pub struct Node<T> {
@@ -74,6 +74,11 @@ impl<T> NodePtr<T> {
         Self { ptr }
     }
 
+    pub unsafe fn alloc_dangling(item: T) -> Self {
+        let dangling = Self::dangling();
+        Self::alloc(dangling, item, dangling)
+    }
+
     pub fn alloc(prev: Self, item: T, next: Self) -> Self {
         unsafe { Self::raw_alloc(prev, MaybeUninit::new(item), next) }
     }
@@ -110,6 +115,11 @@ impl<T> NodePtr<T> {
         }
     }
 
+    pub fn link(self, ptr: Self) {
+        self.set_next(ptr);
+        ptr.set_prev(self);
+    }
+
     pub fn is_dummy(self, list: &LinkedList<T>) -> bool {
         list.dummy.map_or(false, |dummy| self == dummy)
     }
@@ -126,17 +136,17 @@ impl<T> NodePtr<T> {
         self.ptr.as_mut()
     }
 
-    pub fn get_raw(self, list: &LinkedList<T>) -> Option<NonNull<T>> {
+    pub unsafe fn get_raw(self, list: &LinkedList<T>) -> Option<NonNull<T>> {
         self.is_dummy(list)
             .not()
             .then(|| unsafe { self.get_raw_unchecked() })
     }
 
-    pub fn get(self, list: &LinkedList<T>) -> Option<&T> {
+    pub unsafe fn get(self, list: &LinkedList<T>) -> Option<&T> {
         self.get_raw(list).map(|ptr| unsafe { ptr.as_ref() })
     }
 
-    pub fn get_mut(self, list: &mut LinkedList<T>) -> Option<&mut T> {
+    pub unsafe fn get_mut(self, list: &mut LinkedList<T>) -> Option<&mut T> {
         self.get_raw(list).map(|mut ptr| unsafe { ptr.as_mut() })
     }
 
@@ -152,6 +162,98 @@ impl<T> NodePtr<T> {
         self.get_raw_unchecked().as_mut()
     }
 
+    // need to guarantee that self is a node in list
+    pub unsafe fn insert_after(self, item: T, list: &mut LinkedList<T>) {
+        let new_node = Self::alloc_dangling(item);
+        self.splice_after(new_node, new_node, 1, list);
+    }
+
+    // need to guarantee that self is a node in list
+    pub unsafe fn insert_before(self, item: T, list: &mut LinkedList<T>) {
+        let new_node = Self::alloc_dangling(item);
+        self.splice_before(new_node, new_node, 1, list);
+    }
+
+    // need to guarantee that self is a node in list
+    pub unsafe fn pop(self, list: &mut LinkedList<T>) -> Option<T> {
+        let (prev, elem, next) = self.dealloc(list)?;
+        prev.link(next);
+
+        list.len = list.len.saturating_sub(1);
+        Some(elem)
+    }
+
+    pub unsafe fn pop_unchecked(self, list: &mut LinkedList<T>) -> T {
+        let (prev, elem, next) = self.dealloc_unchecked();
+        prev.link(next);
+
+        list.len = list.len.saturating_sub(1);
+        elem
+    }
+
+    // slice off a part of the linked list
+    // the slice CANNOT include the dummy node
+    pub unsafe fn slice_off(front: Self, back: Self, len: usize, list: &mut LinkedList<T>) {
+        front.prev().link(back.next());
+        list.len = list.len.saturating_sub(len);
+
+        let mut iter = RawIter::new(front, back, len);
+        iter.for_each(|ptr| {
+            ptr.dealloc_raw();
+        });
+    }
+
+    // slice off a part of the linked list
+    // the slice CANNOT include the dummy node
+    pub unsafe fn slice_off_as_list(
+        front: Self,
+        back: Self,
+        len: usize,
+        list: &mut LinkedList<T>,
+    ) -> LinkedList<T> {
+        front.prev().link(back.next());
+        list.len = list.len.saturating_sub(len);
+
+        let mut res = LinkedList::new();
+        res.init().splice_after(front, back, len, &mut res);
+
+        res
+    }
+
+    pub unsafe fn splice_after(
+        self,
+        front: Self,
+        back: Self,
+        len: usize,
+        list: &mut LinkedList<T>,
+    ) {
+        debug_assert!(list.dummy.is_some());
+
+        let next = self.next();
+
+        self.link(front);
+        back.link(next);
+
+        list.len = list.len.saturating_add(len);
+    }
+
+    pub unsafe fn splice_before(
+        self,
+        front: Self,
+        back: Self,
+        len: usize,
+        list: &mut LinkedList<T>,
+    ) {
+        debug_assert!(list.dummy.is_some());
+
+        let prev = self.prev();
+
+        prev.link(front);
+        back.link(self);
+
+        list.len = list.len.saturating_add(len);
+    }
+
     pub unsafe fn dealloc(self, list: &mut LinkedList<T>) -> Option<(Self, T, Self)> {
         self.is_dummy(list).not().then(|| {
             let Node {
@@ -159,6 +261,11 @@ impl<T> NodePtr<T> {
             } = self.dealloc_raw();
             (prev, item.assume_init(), next)
         })
+    }
+
+    pub unsafe fn dealloc_unchecked(self) -> (Self, T, Self) {
+        let Node { prev, next, item } = self.dealloc_raw();
+        (prev, item.assume_init(), next)
     }
 
     pub unsafe fn dealloc_raw(self) -> Node<T> {

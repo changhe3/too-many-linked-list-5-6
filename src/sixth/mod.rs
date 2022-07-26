@@ -1,9 +1,6 @@
 use std::{fmt::Debug, hash::Hash, marker::PhantomData};
 
-use self::{
-    cursor::{Cursor, CursorMut},
-    node::{Node, NodePtr},
-};
+use self::{iter::DrainFilter, node::NodePtr};
 
 mod cursor;
 mod iter;
@@ -45,69 +42,53 @@ impl<T> LinkedList<T> {
     }
 
     pub fn clear(&mut self) {
-        if let Some(dummy) = self.dummy {
-            let mut ptr = dummy.next();
-            while ptr != dummy {
-                let Node { next, .. } = unsafe { ptr.dealloc_raw() };
-                ptr = next;
+        unsafe {
+            if let Some(iter) = self.raw_iter() {
+                iter.for_each(|ptr| {
+                    ptr.dealloc_raw();
+                })
             }
         }
     }
 
     pub fn push_front(&mut self, item: T) {
         let dummy = self.init();
-        let head = dummy.next();
-        let new_head = NodePtr::alloc(dummy, item, head);
-        head.set_prev(new_head);
-        dummy.set_next(new_head);
-
-        self.len = self.len.saturating_add(1);
+        unsafe {
+            dummy.insert_after(item, self);
+        }
     }
 
     pub fn push_back(&mut self, item: T) {
         let dummy = self.init();
-        let tail = dummy.prev();
-        let new_tail = NodePtr::alloc(tail, item, dummy);
-        tail.set_next(new_tail);
-        dummy.set_prev(new_tail);
-
-        self.len = self.len.saturating_add(1);
+        unsafe {
+            dummy.insert_before(item, self);
+        }
     }
 
     pub fn pop_front(&mut self) -> Option<T> {
         let dummy = self.dummy?;
-        let (_, item, new_head) = unsafe { dummy.next().dealloc(self)? };
-        dummy.set_next(new_head);
-        new_head.set_prev(dummy);
-
-        self.len = self.len.saturating_sub(1);
-        Some(item)
+        unsafe { dummy.next().pop(self) }
     }
 
     pub fn pop_back(&mut self) -> Option<T> {
         let dummy = self.dummy?;
-        let (new_tail, item, _) = unsafe { dummy.prev().dealloc(self)? };
-        dummy.set_prev(new_tail);
-        new_tail.set_next(dummy);
-
-        self.len = self.len.saturating_sub(1);
-        Some(item)
+        unsafe { dummy.prev().pop(self) }
     }
 
     pub fn front(&self) -> Option<&T> {
-        self.dummy?.next().get(self)
+        unsafe { self.dummy?.next().get(self) }
     }
 
     pub fn front_mut(&mut self) -> Option<&mut T> {
-        self.dummy?.next().get_mut(self)
+        unsafe { self.dummy?.next().get_mut(self) }
     }
 
     pub fn back(&self) -> Option<&T> {
-        self.dummy?.prev().get(self)
+        unsafe { self.dummy?.prev().get(self) }
     }
 
     pub fn back_mut(&mut self) -> Option<&mut T> {
-        self.dummy?.prev().get_mut(self)
+        unsafe { self.dummy?.prev().get_mut(self) }
     }
 
     pub fn iter(&self) -> Iter<'_, T> {
@@ -116,6 +97,10 @@ impl<T> LinkedList<T> {
 
     pub fn iter_mut(&mut self) -> IterMut<'_, T> {
         self.into_iter()
+    }
+
+    pub fn drain_filter<F: FnMut(&mut T) -> bool>(&mut self, pred: F) -> DrainFilter<'_, T, F> {
+        DrainFilter::new(self, pred)
     }
 
     // pub fn cursor(&self) -> Cursor<'_, T> {
@@ -211,6 +196,7 @@ unsafe impl<T: Sync> Sync for LinkedList<T> {}
 
 #[cfg(test)]
 mod test {
+
     use super::LinkedList;
 
     fn generate_test() -> LinkedList<i32> {
@@ -480,6 +466,43 @@ mod test {
         assert_eq!(map.remove(&list2), Some("list2"));
 
         assert!(map.is_empty());
+    }
+
+    #[test]
+    fn test_drain() {
+        let mut list = (0..10).collect::<LinkedList<_>>();
+        assert!(list.iter().eq([0, 1, 2, 3, 4, 5, 6, 7, 8, 9].iter()));
+
+        let mut drain = list.drain_filter(|i| {
+            if *i % 2 == 0 {
+                *i /= 2;
+                false
+            } else {
+                *i = *i * 3 + 1;
+                true
+            }
+        });
+
+        assert_eq!(drain.next(), Some(4));
+        assert_eq!(drain.next(), Some(10));
+        assert_eq!(drain.next(), Some(16));
+        assert_eq!(drain.next_back(), Some(28));
+
+        assert_eq!(list.into_iter().collect::<Vec<_>>(), vec![0, 1, 2, 6, 7, 8]);
+    }
+
+    #[test]
+    fn test_drain_panic() {
+        fn panic() {
+            let mut list = (0..10).collect::<LinkedList<_>>();
+            assert!(list.iter().eq([0, 1, 2, 3, 4, 5, 6, 7, 8, 9].iter()));
+
+            let drain = list.drain_filter(|i| if *i % 4 == 3 { true } else { panic!("fxxk u") });
+
+            let _ = drain.collect::<Vec<_>>();
+        }
+
+        assert!(std::panic::catch_unwind(panic).is_err());
     }
 
     #[allow(dead_code)]

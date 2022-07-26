@@ -1,67 +1,103 @@
-use std::{marker::PhantomData, ops::Rem, ptr::NonNull};
-
 use super::{node::NodePtr, LinkedList};
 
-pub(crate) struct RawCursor<T> {
+pub struct RawCursor<T> {
     pub(crate) node: Option<NodePtr<T>>,
     pub(crate) index: usize,
 }
 
-pub struct Cursor<'a, T> {
-    pub(crate) inner: RawCursor<T>,
-    pub(crate) list: &'a LinkedList<T>,
-}
-
-pub struct CursorMut<'a, T> {
-    pub(crate) inner: RawCursor<T>,
-    pub(crate) list: &'a mut LinkedList<T>,
-}
-
 impl<T> RawCursor<T> {
-    fn reset_index(&mut self, list: &LinkedList<T>) {
-        if self.index > list.len() {
-            self.index %= list.len() + 1;
+    fn new(list: &LinkedList<T>) -> Self {
+        Self {
+            node: list.dummy,
+            index: list.len,
         }
     }
 
-    pub fn index(&self, list: &LinkedList<T>) -> Option<usize> {
-        let index = self.index;
-        (index != list.len()).then_some(index)
+    fn set_index(&mut self, index: usize, list: &LinkedList<T>) {
+        self.index = index;
+        if self.index > list.len {
+            self.index %= list.len + 1;
+        }
     }
 
-    pub fn move_next(&mut self, list: &LinkedList<T>) {
+    fn index_add(&mut self, inc: usize, list: &LinkedList<T>) {
+        self.set_index(self.index.wrapping_add(inc), list);
+    }
+
+    fn index_sub(&mut self, dec: usize, list: &LinkedList<T>) {
+        self.set_index(self.index.wrapping_sub(dec), list);
+    }
+
+    fn index(&self, list: &LinkedList<T>) -> Option<usize> {
+        (self.index != list.len).then_some(self.index)
+    }
+
+    fn move_next(&mut self, list: &LinkedList<T>) {
         if let Some(node) = self.node.as_mut() {
             *node = node.next();
-            self.index = self.index.wrapping_add(1);
-            self.reset_index(list);
+            self.index_add(1, list);
         }
     }
 
-    pub fn move_prev(&mut self, list: &LinkedList<T>) {
+    fn move_prev(&mut self, list: &LinkedList<T>) {
         if let Some(node) = self.node.as_mut() {
             *node = node.prev();
-            self.index = self.index.wrapping_sub(1);
-            self.reset_index(list);
+            self.index_sub(1, list);
         }
     }
 
-    pub fn current<'a>(&self, list: &'a LinkedList<T>) -> Option<&'a T> {
+    unsafe fn current<'a>(&self, list: &'a LinkedList<T>) -> Option<&'a T> {
         self.node?.get(list)
     }
 
-    pub fn current_mut<'a>(&self, list: &'a mut LinkedList<T>) -> Option<&'a mut T> {
+    unsafe fn current_mut<'a>(&mut self, list: &'a mut LinkedList<T>) -> Option<&'a mut T> {
         self.node?.get_mut(list)
     }
-}
 
-impl<'a, T> Cursor<'a, T> {
-    pub fn index(&self) -> Option<usize> {
-        self.inner.index(self.list)
+    unsafe fn peek_next<'a>(&self, list: &'a LinkedList<T>) -> Option<&'a T> {
+        self.node?.next().get(list)
     }
-}
 
-impl<'a, T> CursorMut<'a, T> {
-    pub fn index(&self) -> Option<usize> {
-        self.inner.index(self.list)
+    unsafe fn peek_next_mut<'a>(&self, list: &'a mut LinkedList<T>) -> Option<&'a mut T> {
+        self.node?.next().get_mut(list)
+    }
+
+    unsafe fn peek_prev<'a>(&self, list: &'a LinkedList<T>) -> Option<&'a T> {
+        self.node?.prev().get(list)
+    }
+
+    unsafe fn peek_prev_mut<'a>(&self, list: &'a mut LinkedList<T>) -> Option<&'a mut T> {
+        self.node?.prev().get_mut(list)
+    }
+
+    fn init(&mut self, list: &mut LinkedList<T>) -> NodePtr<T> {
+        *self.node.get_or_insert_with(|| list.init())
+    }
+
+    unsafe fn insert_after(&mut self, item: T, list: &mut LinkedList<T>) {
+        let node = self.init(list);
+        node.insert_after(item, list);
+
+        if node.is_dummy(list) {
+            self.index_add(1, list);
+        }
+    }
+
+    unsafe fn insert_before(&mut self, item: T, list: &mut LinkedList<T>) {
+        let node = self.init(list);
+        node.insert_before(item, list);
+
+        if !node.is_dummy(list) {
+            self.index_add(1, list);
+        }
+    }
+
+    unsafe fn remove_current(&mut self, list: &mut LinkedList<T>) -> Option<T> {
+        let node = self.node.as_mut()?;
+        let next = node.next();
+
+        let item = node.pop(list)?;
+        *node = next;
+        Some(item)
     }
 }

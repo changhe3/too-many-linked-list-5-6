@@ -10,6 +10,10 @@ pub(crate) struct RawIter<T> {
 }
 
 impl<T> RawIter<T> {
+    pub(crate) fn new(front: NodePtr<T>, back: NodePtr<T>, len: usize) -> Self {
+        Self { front, back, len }
+    }
+
     fn len(&self) -> usize {
         self.len
     }
@@ -18,8 +22,8 @@ impl<T> RawIter<T> {
 impl<T> LinkedList<T> {
     pub(crate) unsafe fn raw_iter(&self) -> Option<RawIter<T>> {
         self.dummy.map(|dummy| RawIter {
-            front: dummy,
-            back: dummy,
+            front: dummy.next(),
+            back: dummy.prev(),
             len: self.len,
         })
     }
@@ -30,10 +34,14 @@ impl<T> Iterator for RawIter<T> {
 
     fn next(&mut self) -> Option<Self::Item> {
         (self.len != 0).then(|| {
-            self.front = self.front.next();
-            self.len = self.len.saturating_sub(1);
+            // Rather than using a simpler design where we return the pointer we are at, we return the pointer that has been advanced past.
+            // This way, we can do whatever we want with the returned pointers, e.g. deallocating them.
 
-            self.front
+            let front = self.front;
+
+            self.front = front.next();
+            self.len = self.len.saturating_sub(1);
+            front
         })
     }
 
@@ -45,10 +53,11 @@ impl<T> Iterator for RawIter<T> {
 impl<T> DoubleEndedIterator for RawIter<T> {
     fn next_back(&mut self) -> Option<Self::Item> {
         (self.len != 0).then(|| {
-            self.back = self.back.prev();
-            self.len = self.len.saturating_sub(1);
+            let back = self.back;
 
-            self.back
+            self.back = back.prev();
+            self.len = self.len.saturating_sub(1);
+            back
         })
     }
 }
@@ -67,6 +76,26 @@ pub struct Iter<'a, T> {
 pub struct IterMut<'a, T> {
     inner: Option<RawIter<T>>,
     _phantom: PhantomData<&'a mut T>,
+}
+
+pub struct DrainFilter<'a, T, F> {
+    inner: Option<RawIter<T>>,
+    retained: usize,
+    pred: F,
+    list: &'a mut LinkedList<T>,
+}
+
+impl<'a, T, F> DrainFilter<'a, T, F> {
+    pub(crate) fn new(list: &'a mut LinkedList<T>, pred: F) -> Self {
+        let inner = unsafe { list.raw_iter() };
+
+        Self {
+            inner,
+            retained: 0,
+            pred,
+            list,
+        }
+    }
 }
 
 pub struct IntoIter<T> {
@@ -105,6 +134,33 @@ impl<'a, T> Iterator for IterMut<'a, T> {
     }
 }
 
+impl<'a, T, F: FnMut(&mut T) -> bool> Iterator for DrainFilter<'a, T, F> {
+    type Item = T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        for ptr in self.inner.as_mut()? {
+            let to_remove = {
+                let item: &'a mut T = unsafe { ptr.get_mut_unchecked() };
+                (self.pred)(item)
+            };
+
+            if to_remove {
+                unsafe {
+                    return Some(ptr.pop_unchecked(self.list));
+                }
+            } else {
+                self.retained = self.retained.saturating_add(1);
+            }
+        }
+
+        None
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (0, Some(self.list.len - self.retained))
+    }
+}
+
 impl<T> Iterator for IntoIter<T> {
     type Item = T;
 
@@ -132,6 +188,27 @@ impl<'a, T> DoubleEndedIterator for IterMut<'a, T> {
             .as_mut()?
             .next_back()
             .map(|ptr| unsafe { ptr.get_mut_unchecked() })
+    }
+}
+
+impl<'a, T, F: FnMut(&mut T) -> bool> DoubleEndedIterator for DrainFilter<'a, T, F> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        for ptr in self.inner.as_mut()?.rev() {
+            let to_remove = {
+                let item: &'a mut T = unsafe { ptr.get_mut_unchecked() };
+                (self.pred)(item)
+            };
+
+            if to_remove {
+                unsafe {
+                    return Some(ptr.pop_unchecked(self.list));
+                }
+            } else {
+                self.retained = self.retained.saturating_add(1);
+            }
+        }
+
+        None
     }
 }
 
