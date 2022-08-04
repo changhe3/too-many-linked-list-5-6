@@ -1,9 +1,22 @@
+use std::ops::Not;
+
 use super::{node::NodePtr, LinkedList};
 
-pub struct RawCursor<T> {
+pub(crate) struct RawCursor<T> {
     pub(crate) node: Option<NodePtr<T>>,
     pub(crate) index: usize,
 }
+
+impl<T> Clone for RawCursor<T> {
+    fn clone(&self) -> Self {
+        Self {
+            node: self.node,
+            index: self.index,
+        }
+    }
+}
+
+impl<T> Copy for RawCursor<T> {}
 
 impl<T> RawCursor<T> {
     fn new(list: &LinkedList<T>) -> Self {
@@ -100,4 +113,112 @@ impl<T> RawCursor<T> {
         *node = next;
         Some(item)
     }
+
+    unsafe fn remove_current_as_list(&mut self, list: &mut LinkedList<T>) -> Option<LinkedList<T>> {
+        let node = self.node.as_mut()?;
+        let next = node.next();
+
+        node.is_dummy(list).not().then(|| {
+            let list = NodePtr::slice_off_as_list(*node, *node, 1, list);
+            *node = next;
+            list
+        })
+    }
+}
+
+pub struct Cursor<'a, T> {
+    inner: RawCursor<T>,
+    list: &'a LinkedList<T>,
+}
+
+pub struct CursorMut<'a, T> {
+    inner: RawCursor<T>,
+    list: &'a mut LinkedList<T>,
+}
+
+impl<'a, T> Cursor<'a, T> {
+    pub fn index(&self) -> Option<usize> {
+        self.inner.index(self.list)
+    }
+
+    pub fn move_next(&mut self) {
+        self.inner.move_next(self.list)
+    }
+
+    pub fn move_prev(&mut self) {
+        self.inner.move_prev(self.list)
+    }
+
+    pub fn current(&self) -> Option<&T> {
+        // Safety:`self.inner` is a node of self.list
+        unsafe { self.inner.current(self.list) }
+    }
+
+    pub fn peek_next(&self) -> Option<&T> {
+        // Safety:`self.inner` is a node of self.list
+        unsafe { self.inner.peek_next(self.list) }
+    }
+
+    pub fn peek_prev(&self) -> Option<&T> {
+        // Safety:`self.inner` is a node of self.list
+        unsafe { self.inner.peek_prev(self.list) }
+    }
+}
+
+impl<'a, T> CursorMut<'a, T> {
+    pub fn index(&self) -> Option<usize> {
+        self.inner.index(self.list)
+    }
+
+    pub fn move_next(&mut self) {
+        self.inner.move_next(self.list)
+    }
+
+    pub fn move_prev(&mut self) {
+        self.inner.move_prev(self.list)
+    }
+
+    pub fn current(&mut self) -> Option<&mut T> {
+        // Safety:`self.inner` is a node of self.list
+        unsafe { self.inner.current_mut(self.list) }
+    }
+
+    pub fn peek_next(&mut self) -> Option<&mut T> {
+        // Safety:`self.inner` is a node of self.list
+        unsafe { self.inner.peek_next_mut(self.list) }
+    }
+
+    pub fn peek_prev(&mut self) -> Option<&mut T> {
+        // Safety:`self.inner` is a node of self.list
+        unsafe { self.inner.peek_prev_mut(self.list) }
+    }
+
+    pub fn as_cursor(&self) -> Cursor<'_, T> {
+        Cursor {
+            inner: self.inner,
+            list: self.list,
+        }
+    }
+
+    pub fn insert_after(&mut self, item: T) {
+        unsafe {
+            self.inner.insert_after(item, self.list);
+        }
+    }
+
+    pub fn insert_before(&mut self, item: T) {
+        unsafe {
+            self.inner.insert_before(item, self.list);
+        }
+    }
+
+    pub fn remove_current(&mut self) -> Option<T> {
+        unsafe { self.inner.remove_current(self.list) }
+    }
+
+    // pub fn remove_current_as_list(&mut self) -> Option<LinkedList<T>> {
+    //     unsafe {
+    //         self.inner.
+    //     }
+    // }
 }

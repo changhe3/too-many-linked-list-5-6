@@ -1,12 +1,13 @@
 use std::{fmt::Debug, hash::Hash, marker::PhantomData};
 
-use self::{iter::DrainFilter, node::NodePtr};
+use self::node::NodePtr;
 
 mod cursor;
 mod iter;
 mod node;
 
-pub use iter::{IntoIter, Iter, IterMut};
+pub use cursor::{Cursor, CursorMut};
+pub use iter::{DrainFilter, IntoIter, Iter, IterMut};
 
 pub struct LinkedList<T> {
     pub(crate) dummy: Option<NodePtr<T>>,

@@ -176,31 +176,29 @@ impl<T> NodePtr<T> {
 
     // need to guarantee that self is a node in list
     pub unsafe fn pop(self, list: &mut LinkedList<T>) -> Option<T> {
-        let (prev, elem, next) = self.dealloc(list)?;
-        prev.link(next);
-
-        list.len = list.len.saturating_sub(1);
-        Some(elem)
+        self.is_dummy(list).not().then(|| self.pop_unchecked(list))
     }
 
     pub unsafe fn pop_unchecked(self, list: &mut LinkedList<T>) -> T {
-        let (prev, elem, next) = self.dealloc_unchecked();
-        prev.link(next);
-
-        list.len = list.len.saturating_sub(1);
-        elem
+        Self::slice_off(self, self, 1, list).next().unwrap()
     }
 
     // slice off a part of the linked list
     // the slice CANNOT include the dummy node
-    pub unsafe fn slice_off(front: Self, back: Self, len: usize, list: &mut LinkedList<T>) {
+    pub unsafe fn slice_off(
+        front: Self,
+        back: Self,
+        len: usize,
+        list: &mut LinkedList<T>,
+    ) -> impl Iterator<Item = T> {
         front.prev().link(back.next());
         list.len = list.len.saturating_sub(len);
 
         let mut iter = RawIter::new(front, back, len);
-        iter.for_each(|ptr| {
-            ptr.dealloc_raw();
-        });
+        iter.map(|node| {
+            let (_, item, _) = node.dealloc_unchecked();
+            item
+        })
     }
 
     // slice off a part of the linked list
